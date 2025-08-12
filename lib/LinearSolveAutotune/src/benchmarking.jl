@@ -146,11 +146,11 @@ function benchmark_algorithms(matrix_sizes, algorithms, alg_names, eltypes;
                 for (alg, name) in zip(compatible_algs, compatible_names)
                     # Skip this algorithm if it has exceeded maxtime for a smaller or equal size matrix
                     if haskey(blocked_algorithms[string(eltype)], name)
-                        max_allowed_size = blocked_algorithms[string(eltype)][name]
-                        if n > max_allowed_size
+                        blocked_at_size = blocked_algorithms[string(eltype)][name]
+                        if n >= blocked_at_size
                             # Still need to update progress bar
                             ProgressMeter.next!(progress)
-                            # Record as skipped due to exceeding maxtime on smaller matrix
+                            # Record as skipped due to exceeding maxtime on smaller or equal matrix
                             push!(results_data,
                                 (
                                     size = n,
@@ -158,7 +158,7 @@ function benchmark_algorithms(matrix_sizes, algorithms, alg_names, eltypes;
                                     eltype = string(eltype),
                                     gflops = NaN,
                                     success = false,
-                                    error = "Skipped: exceeded maxtime on size $max_allowed_size matrix"
+                                    error = "Skipped: exceeded maxtime on size $blocked_at_size matrix"
                                 ))
                             continue
                         end
@@ -193,10 +193,10 @@ function benchmark_algorithms(matrix_sizes, algorithms, alg_names, eltypes;
                         # Check if we exceeded maxtime
                         if elapsed_time > maxtime
                             exceeded_maxtime = true
-                            # Block this algorithm for larger matrices
-                            # Store the last size that was allowed to complete
+                            # Block this algorithm for this size and larger matrices
+                            # Store the size where it exceeded maxtime
                             blocked_algorithms[string(eltype)][name] = n
-                            @warn "Algorithm $name exceeded maxtime ($(round(elapsed_time, digits=2))s > $(maxtime)s) for size $n, eltype $eltype. Will skip for larger matrices."
+                            @warn "Algorithm $name exceeded maxtime ($(round(elapsed_time, digits=2))s > $(maxtime)s) for size $n, eltype $eltype. Will skip for this and larger matrices."
                             success = false
                             error_msg = "Exceeded maxtime ($(round(elapsed_time, digits=2))s)"
                             gflops = NaN
