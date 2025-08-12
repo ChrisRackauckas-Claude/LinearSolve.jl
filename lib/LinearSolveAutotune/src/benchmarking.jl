@@ -148,6 +148,9 @@ function benchmark_algorithms(matrix_sizes, algorithms, alg_names, eltypes;
                     if haskey(blocked_algorithms[string(eltype)], name)
                         blocked_at_size = blocked_algorithms[string(eltype)][name]
                         if n >= blocked_at_size
+                            # Print informative message about skipping
+                            @info "⏭️  Skipping $name for $(n)×$(n) $eltype matrix (exceeded maxtime at size $blocked_at_size)"
+                            
                             # Still need to update progress bar
                             ProgressMeter.next!(progress)
                             # Record as skipped due to exceeding maxtime on smaller or equal matrix
