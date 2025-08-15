@@ -1,5 +1,6 @@
 using Test
 using LinearSolve
+using LinearAlgebra  # For I (identity matrix)
 
 if isempty(VERSION.prerelease)
     using LinearSolveAutotune
@@ -409,6 +410,134 @@ if isempty(VERSION.prerelease)
             end
             
             # Clean up
+            LinearSolveAutotune.clear_algorithm_preferences()
+        end
+
+        @testset "Integration: Tuned Preferences Usage in Default Solver" begin
+            # Test that tuned preferences are actually used by the default solver
+            LinearSolveAutotune.clear_algorithm_preferences()
+            
+            # Create a specific preference scenario to test
+            using Preferences
+            
+            # Set known preferences that we can verify are used
+            Preferences.set_preferences!(LinearSolve, "best_algorithm_Float64_medium" => "RFLUFactorization"; force = true)
+            Preferences.set_preferences!(LinearSolve, "best_always_loaded_Float64_medium" => "MKLLUFactorization"; force = true)
+            
+            # Create a test problem that should use the medium size category
+            n = 150  # This should fall in medium category (100-300)
+            A = rand(Float64, n, n) + I  # Make it well-conditioned
+            b = rand(Float64, n)
+            
+            # Test default algorithm selection - this would use the preferences if the system is integrated
+            prob = LinearProblem(A, b)
+            
+            # Since we can't directly test the PR #730 integration (not merged yet),
+            # we test that our preferences are properly set and would be readable
+            # by the default solver selection logic
+            
+            @test Preferences.has_preference(LinearSolve, "best_algorithm_Float64_medium")
+            @test Preferences.has_preference(LinearSolve, "best_always_loaded_Float64_medium")
+            
+            best_alg = Preferences.load_preference(LinearSolve, "best_algorithm_Float64_medium", nothing)
+            fallback_alg = Preferences.load_preference(LinearSolve, "best_always_loaded_Float64_medium", nothing)
+            
+            @test best_alg == "RFLUFactorization"
+            @test fallback_alg == "MKLLUFactorization"
+            
+            # Test that we can solve the problem with different algorithms to verify they work
+            # This ensures the algorithms we're setting preferences for actually function
+            
+            # Test with the "best" algorithm (if extension available)
+            if LinearSolve.userecursivefactorization(A)
+                sol_best = solve(prob, RFLUFactorization())
+                @test sol_best.retcode == ReturnCode.Success
+                @test norm(A * sol_best.u - b) < 1e-10
+            end
+            
+            # Test with the "always loaded" algorithm
+            if LinearSolve.usemkl
+                sol_fallback = solve(prob, MKLLUFactorization())
+                @test sol_fallback.retcode == ReturnCode.Success
+                @test norm(A * sol_fallback.u - b) < 1e-10
+            else
+                # If MKL not available, test with LUFactorization (another always-loaded option)
+                sol_fallback = solve(prob, LUFactorization())
+                @test sol_fallback.retcode == ReturnCode.Success
+                @test norm(A * sol_fallback.u - b) < 1e-10
+            end
+            
+            # Test default algorithm selection (this uses existing heuristics, not preferences yet)
+            sol_default = solve(prob)  # Uses DefaultLinearSolver()
+            @test sol_default.retcode == ReturnCode.Success
+            @test norm(A * sol_default.u - b) < 1e-10
+            
+            # Clean up preferences
+            LinearSolveAutotune.clear_algorithm_preferences()
+        end
+        
+        @testset "Integration: Preference-Aware Algorithm Selection Simulation" begin
+            # Simulate how the enhanced default solver should work with preferences
+            LinearSolveAutotune.clear_algorithm_preferences()
+            
+            # Test multiple element types and size categories
+            test_scenarios = [
+                (Float64, 50, :tiny, "RFLUFactorization", "MKLLUFactorization"),
+                (Float64, 200, :medium, "RFLUFactorization", "LUFactorization"), 
+                (Float32, 150, :medium, "MKLLUFactorization", "MKLLUFactorization"),
+                (ComplexF64, 100, :small, "LUFactorization", "LUFactorization")  # Conservative for complex
+            ]
+            
+            for (eltype, size, size_cat, best_alg, fallback_alg) in test_scenarios
+                # Set preferences for this scenario
+                size_cat_str = string(size_cat)
+                eltype_str = string(eltype)
+                
+                Preferences.set_preferences!(LinearSolve, 
+                    "best_algorithm_$(eltype_str)_$(size_cat_str)" => best_alg; force = true)
+                Preferences.set_preferences!(LinearSolve, 
+                    "best_always_loaded_$(eltype_str)_$(size_cat_str)" => fallback_alg; force = true)
+                
+                # Verify preferences are set correctly
+                @test Preferences.load_preference(LinearSolve, 
+                    "best_algorithm_$(eltype_str)_$(size_cat_str)", nothing) == best_alg
+                @test Preferences.load_preference(LinearSolve, 
+                    "best_always_loaded_$(eltype_str)_$(size_cat_str)", nothing) == fallback_alg
+                
+                # Create test problem of appropriate size and type
+                A = rand(eltype, size, size) + I
+                b = rand(eltype, size)
+                prob = LinearProblem(A, b)
+                
+                # Test that we can solve with the preferred algorithms
+                # This verifies the algorithms work and could be used by default selection
+                
+                # Test always-loaded algorithm (should always work)
+                if fallback_alg == "MKLLUFactorization" && LinearSolve.usemkl
+                    sol = solve(prob, MKLLUFactorization())
+                    @test sol.retcode == ReturnCode.Success
+                elseif fallback_alg == "LUFactorization"
+                    sol = solve(prob, LUFactorization())
+                    @test sol.retcode == ReturnCode.Success
+                elseif fallback_alg == "GenericLUFactorization"
+                    sol = solve(prob, GenericLUFactorization())
+                    @test sol.retcode == ReturnCode.Success
+                end
+                
+                # Test best algorithm (if available)
+                if best_alg == "RFLUFactorization" && LinearSolve.userecursivefactorization(A)
+                    sol = solve(prob, RFLUFactorization())
+                    @test sol.retcode == ReturnCode.Success
+                elseif best_alg == "MKLLUFactorization" && LinearSolve.usemkl
+                    sol = solve(prob, MKLLUFactorization())
+                    @test sol.retcode == ReturnCode.Success
+                elseif best_alg == "LUFactorization"
+                    sol = solve(prob, LUFactorization())
+                    @test sol.retcode == ReturnCode.Success
+                end
+            end
+            
+            # Clean up all test preferences
             LinearSolveAutotune.clear_algorithm_preferences()
         end
         
