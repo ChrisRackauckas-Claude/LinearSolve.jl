@@ -59,6 +59,10 @@ for alg in vcat(
                 Base.get_extension(LinearSolve, :LinearSolveParUExt) !== nothing
         ) &&
             (
+            !(alg == PureUMFPACKFactorization) ||
+                Base.get_extension(LinearSolve, :LinearSolvePureUMFPACKExt) !== nothing
+        ) &&
+            (
             !(alg == ElementalJL) ||
                 Base.get_extension(LinearSolve, :LinearSolveElementalExt) !== nothing
         ) &&
