@@ -27,7 +27,11 @@ mat = sparse(rows, cols, vals, n, n)
 rhs = big.(zeros(n))
 rhs[begin] = rhs[end] = -2
 prob = LinearProblem(mat, rhs)
-@test_throws ["SparspakFactorization required", "using Sparspak"] sol = solve(prob).u
+# Generic-eltype (BigFloat) sparse now defaults to the pure-Julia PureKLU, which
+# is a hard dependency, so solving works without `using Sparspak`.
+sol = solve(prob)
+@test SciMLBase.successful_retcode(sol.retcode)
+@test sol.u isa Vector{BigFloat}
 
 STRUMPACKExt = Base.get_extension(LinearSolve, :LinearSolveSTRUMPACKExt)
 if STRUMPACKExt === nothing || !STRUMPACKExt.strumpack_isavailable()
