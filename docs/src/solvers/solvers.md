@@ -172,6 +172,7 @@ customized per-package, details given below describe a subset of important array
 ```@docs
 LUFactorization
 GenericLUFactorization
+GESVFactorization
 QRFactorization
 SVDFactorization
 CholeskyFactorization
